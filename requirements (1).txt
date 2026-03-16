@@ -3,3 +3,9 @@ pandas
 openpyxl
 yfinance
 plotly
+fastapi
+uvicorn
+pandas
+openpyxl
+yfinance
+jinja2
