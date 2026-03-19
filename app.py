@@ -277,9 +277,15 @@ with tab4:
             text=[f"{v:.1f}%" for v in sectors.values()],
             textposition="outside",
         ))
-        fig5.update_layout(**CHART_LAYOUT, xaxis_title="Weight %",
-                           margin=dict(t=10, b=20, l=10, r=60),
-                           xaxis=dict(gridcolor="#2a2d3e"), yaxis=dict(gridcolor="rgba(0,0,0,0)"))
+        fig5.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#e2e8f0"),
+            xaxis_title="Weight %",
+            margin=dict(t=10, b=20, l=10, r=60),
+            xaxis=dict(gridcolor="#2a2d3e"),
+            yaxis=dict(gridcolor="rgba(0,0,0,0)"),
+        )
         st.plotly_chart(fig5, use_container_width=True)
 
     with s2:
