@@ -9,3 +9,8 @@ pandas
 openpyxl
 yfinance
 jinja2
+pandas
+openpyxl
+yfinance
+plotly
+numpy
