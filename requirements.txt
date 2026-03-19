@@ -14,3 +14,9 @@ openpyxl
 yfinance
 plotly
 numpy
+pandas
+openpyxl
+yfinance
+plotly
+numpy
+scipy
