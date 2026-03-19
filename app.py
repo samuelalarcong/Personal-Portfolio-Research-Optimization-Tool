@@ -1,15 +1,6 @@
 """
-app.py — Full Phase 1 Portfolio Dashboard
-==========================================
-Features:
-  - Portfolio holdings from Excel
-  - Live prices from Yahoo Finance
-  - Allocation and position weights
-  - Performance vs SPY benchmark
-  - Risk metrics (volatility, Sharpe, drawdown, beta)
-  - Sector exposure
-  - Correlation matrix
-
+app.py — Phase 1 + Phase 2 Portfolio Dashboard
+===============================================
 RUN:
     streamlit run app.py
 """
@@ -27,6 +18,12 @@ from analytics import (
     get_risk_metrics,
     get_sector_exposure,
     get_correlation_matrix,
+)
+from optimizer import (
+    run_optimization,
+    risk_adjusted_analysis,
+    get_rebalancing_suggestions,
+    allocate_new_capital,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -119,12 +116,15 @@ st.divider()
 # TABS
 # ─────────────────────────────────────────────────────────────────────────────
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "📊  Holdings",
     "📈  Performance",
     "⚠️  Risk",
     "🏭  Sectors",
     "🔗  Correlation",
+    "🎯  Optimization",
+    "⚖️  Rebalancing",
+    "💰  New Capital",
 ])
 
 CHART_LAYOUT = dict(
@@ -342,3 +342,314 @@ with tab5:
         st.dataframe(pd.DataFrame(pairs), use_container_width=True, hide_index=True)
     else:
         st.success("✅ No highly correlated pairs. Good diversification.")
+
+
+# ══════════════════════════════════════════════════════
+# TAB 6 — OPTIMIZATION
+# ══════════════════════════════════════════════════════
+
+with tab6:
+    st.markdown("#### Mean-variance portfolio optimization")
+    st.caption("Finds the weights that maximize risk-adjusted return (Sharpe ratio) and minimum volatility.")
+
+    with st.spinner("Running Markowitz optimization..."):
+        opt = run_optimization(list(tickers), list(weights), period)
+
+    if "error" in opt:
+        st.error(opt["error"])
+    else:
+        # ── Stats comparison ─────────────────────────────────────────────
+        st.markdown("#### Current vs Optimized portfolios")
+        o1, o2, o3 = st.columns(3)
+
+        with o1:
+            st.markdown("**Current portfolio**")
+            st.metric("Return",     f"{opt['current_stats']['return']}%")
+            st.metric("Volatility", f"{opt['current_stats']['volatility']}%")
+            st.metric("Sharpe",     f"{opt['current_stats']['sharpe']}")
+
+        with o2:
+            st.markdown("**Max Sharpe (best risk/return)**")
+            delta_r = round(opt['max_sharpe_stats']['return']     - opt['current_stats']['return'], 2)
+            delta_v = round(opt['max_sharpe_stats']['volatility'] - opt['current_stats']['volatility'], 2)
+            delta_s = round(opt['max_sharpe_stats']['sharpe']     - opt['current_stats']['sharpe'], 2)
+            st.metric("Return",     f"{opt['max_sharpe_stats']['return']}%",     f"{delta_r:+.2f}%")
+            st.metric("Volatility", f"{opt['max_sharpe_stats']['volatility']}%", f"{delta_v:+.2f}%")
+            st.metric("Sharpe",     f"{opt['max_sharpe_stats']['sharpe']}",      f"{delta_s:+.2f}")
+
+        with o3:
+            st.markdown("**Min Volatility (safest)**")
+            delta_r2 = round(opt['min_vol_stats']['return']     - opt['current_stats']['return'], 2)
+            delta_v2 = round(opt['min_vol_stats']['volatility'] - opt['current_stats']['volatility'], 2)
+            delta_s2 = round(opt['min_vol_stats']['sharpe']     - opt['current_stats']['sharpe'], 2)
+            st.metric("Return",     f"{opt['min_vol_stats']['return']}%",     f"{delta_r2:+.2f}%")
+            st.metric("Volatility", f"{opt['min_vol_stats']['volatility']}%", f"{delta_v2:+.2f}%")
+            st.metric("Sharpe",     f"{opt['min_vol_stats']['sharpe']}",      f"{delta_s2:+.2f}")
+
+        st.divider()
+
+        # ── Weight comparison bar chart ──────────────────────────────────
+        st.markdown("#### Current vs optimal weights per position")
+        weight_df = pd.DataFrame({
+            "Ticker":       opt["tickers"],
+            "Current %":    opt["current_weights"],
+            "Max Sharpe %": opt["max_sharpe_weights"],
+            "Min Vol %":    opt["min_vol_weights"],
+        })
+        fig_w = go.Figure()
+        fig_w.add_trace(go.Bar(name="Current",    x=weight_df["Ticker"], y=weight_df["Current %"],    marker_color="#94a3b8"))
+        fig_w.add_trace(go.Bar(name="Max Sharpe", x=weight_df["Ticker"], y=weight_df["Max Sharpe %"], marker_color="#6366f1"))
+        fig_w.add_trace(go.Bar(name="Min Vol",    x=weight_df["Ticker"], y=weight_df["Min Vol %"],    marker_color="#34d399"))
+        fig_w.update_layout(
+            barmode="group", yaxis_title="Weight %",
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#e2e8f0"), margin=dict(t=20, b=20),
+            yaxis=dict(gridcolor="#2a2d3e"),
+            legend=dict(orientation="h", y=1.1),
+        )
+        st.plotly_chart(fig_w, use_container_width=True)
+
+        # ── Efficient frontier ───────────────────────────────────────────
+        if opt["efficient_frontier"]:
+            st.markdown("#### Efficient frontier")
+            st.caption("Each dot is a possible portfolio. The curve shows the best return for each level of risk.")
+            ef = pd.DataFrame(opt["efficient_frontier"])
+            fig_ef = go.Figure()
+            fig_ef.add_trace(go.Scatter(
+                x=ef["volatility"], y=ef["return"],
+                mode="lines", name="Efficient frontier",
+                line=dict(color="#6366f1", width=2),
+            ))
+            # Plot current portfolio
+            fig_ef.add_trace(go.Scatter(
+                x=[opt["current_stats"]["volatility"]],
+                y=[opt["current_stats"]["return"]],
+                mode="markers", name="Current",
+                marker=dict(color="#f59e0b", size=12, symbol="star"),
+            ))
+            # Plot max Sharpe
+            fig_ef.add_trace(go.Scatter(
+                x=[opt["max_sharpe_stats"]["volatility"]],
+                y=[opt["max_sharpe_stats"]["return"]],
+                mode="markers", name="Max Sharpe",
+                marker=dict(color="#34d399", size=12, symbol="diamond"),
+            ))
+            # Plot min vol
+            fig_ef.add_trace(go.Scatter(
+                x=[opt["min_vol_stats"]["volatility"]],
+                y=[opt["min_vol_stats"]["return"]],
+                mode="markers", name="Min Volatility",
+                marker=dict(color="#f87171", size=12, symbol="circle"),
+            ))
+            fig_ef.update_layout(
+                xaxis_title="Annualised Volatility %",
+                yaxis_title="Annualised Return %",
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="#e2e8f0"), margin=dict(t=20, b=20),
+                xaxis=dict(gridcolor="#2a2d3e"), yaxis=dict(gridcolor="#2a2d3e"),
+                legend=dict(orientation="h", y=1.1),
+            )
+            st.plotly_chart(fig_ef, use_container_width=True)
+
+        # ── Risk-adjusted per holding ────────────────────────────────────
+        st.markdown("#### Risk-adjusted return per holding")
+        with st.spinner("Analysing each position..."):
+            ra = risk_adjusted_analysis(list(tickers), period)
+        ra_df = pd.DataFrame(ra)
+        ra_df.columns = ["Ticker", "Ann. Return %", "Ann. Vol %", "Sharpe", "Max DD %", "Verdict"]
+
+        def color_sharpe(val):
+            if isinstance(val, float):
+                if val > 1.5: return "color: #34d399"
+                if val > 0.8: return "color: #6366f1"
+                if val > 0.3: return "color: #f59e0b"
+                return "color: #f87171"
+            return ""
+
+        styled_ra = ra_df.style\
+            .format({"Ann. Return %": "{:+.2f}%", "Ann. Vol %": "{:.2f}%",
+                     "Sharpe": "{:.2f}", "Max DD %": "{:.2f}%"})\
+            .applymap(color_sharpe, subset=["Sharpe"])
+        st.dataframe(styled_ra, use_container_width=True, hide_index=True)
+
+
+# ══════════════════════════════════════════════════════
+# TAB 7 — REBALANCING
+# ══════════════════════════════════════════════════════
+
+with tab7:
+    st.markdown("#### Rebalancing suggestions")
+    st.caption("Based on the Max Sharpe optimal weights. Only shows positions with > 2% deviation.")
+
+    with st.spinner("Running optimization for rebalancing..."):
+        opt_reb = run_optimization(list(tickers), list(weights), period)
+
+    if "error" in opt_reb:
+        st.error(opt_reb["error"])
+    else:
+        rebal_type = st.radio("Optimize for", ["Max Sharpe (best return/risk)", "Min Volatility (safest)"],
+                               horizontal=True)
+
+        optimal_w = opt_reb["max_sharpe_weights"] if "Sharpe" in rebal_type else opt_reb["min_vol_weights"]
+
+        suggestions = get_rebalancing_suggestions(
+            tickers    = opt_reb["tickers"],
+            current_weights = opt_reb["current_weights"],
+            optimal_weights = optimal_w,
+            total_value     = summary["total_value"],
+            threshold       = 2.0,
+        )
+
+        if not suggestions:
+            st.success("✅ Portfolio is already close to optimal. No significant rebalancing needed.")
+        else:
+            # Plain-English summary
+            st.markdown("#### Action items")
+            for s in suggestions:
+                if s["diff_pct"] > 0:
+                    st.success(f"📈 {s['message']}")
+                else:
+                    st.warning(f"📉 {s['message']}")
+
+            st.divider()
+
+            # Table
+            st.markdown("#### Full rebalancing table")
+            reb_df = pd.DataFrame(suggestions)[[
+                "ticker", "current_pct", "optimal_pct", "diff_pct", "dollar_change", "action"
+            ]]
+            reb_df.columns = ["Ticker", "Current %", "Optimal %", "Diff %", "$ Change", "Action"]
+
+            def color_diff(val):
+                if isinstance(val, float):
+                    return f"color: {'#34d399' if val > 0 else '#f87171'}"
+                return ""
+
+            styled_reb = reb_df.style\
+                .format({"Current %": "{:.2f}%", "Optimal %": "{:.2f}%",
+                         "Diff %": "{:+.2f}%", "$ Change": "${:,.0f}"})\
+                .applymap(color_diff, subset=["Diff %", "$ Change"])
+            st.dataframe(styled_reb, use_container_width=True, hide_index=True)
+
+            # Visual diff chart
+            st.markdown("#### Current vs target weights")
+            fig_reb = go.Figure()
+            fig_reb.add_trace(go.Bar(
+                name="Current", x=opt_reb["tickers"], y=opt_reb["current_weights"],
+                marker_color="#94a3b8",
+            ))
+            fig_reb.add_trace(go.Bar(
+                name="Target", x=opt_reb["tickers"], y=optimal_w,
+                marker_color="#6366f1",
+            ))
+            fig_reb.update_layout(
+                barmode="group", yaxis_title="Weight %",
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="#e2e8f0"), margin=dict(t=20, b=20),
+                yaxis=dict(gridcolor="#2a2d3e"),
+                legend=dict(orientation="h", y=1.1),
+            )
+            st.plotly_chart(fig_reb, use_container_width=True)
+
+
+# ══════════════════════════════════════════════════════
+# TAB 8 — NEW CAPITAL ALLOCATION
+# ══════════════════════════════════════════════════════
+
+with tab8:
+    st.markdown("#### Where to put new capital")
+    st.caption("Enter new money to invest. The optimizer tells you exactly where to put it to move closer to the optimal portfolio.")
+
+    col_input, col_info = st.columns([1, 2])
+
+    with col_input:
+        new_capital = st.number_input(
+            "New capital to invest ($)",
+            min_value=100.0,
+            max_value=10_000_000.0,
+            value=5000.0,
+            step=500.0,
+            format="%.2f",
+        )
+        optimize_for = st.radio("Optimize for", ["Max Sharpe", "Min Volatility"])
+        run_btn = st.button("Calculate allocation →", use_container_width=True)
+
+    with col_info:
+        st.info(f"""
+        **How this works:**
+
+        1. Calculates the optimal portfolio weights
+        2. Figures out how far each position is from its target
+        3. Allocates your **${new_capital:,.0f}** to the most underweight positions
+        4. Never tells you to sell — only where to buy
+
+        Current portfolio value: **${summary['total_value']:,.2f}**
+        After new capital: **${summary['total_value'] + new_capital:,.2f}**
+        """)
+
+    if run_btn:
+        with st.spinner("Calculating optimal allocation..."):
+            opt_cap = run_optimization(list(tickers), list(weights), period)
+
+        if "error" in opt_cap:
+            st.error(opt_cap["error"])
+        else:
+            optimal_w_cap = opt_cap["max_sharpe_weights"] if optimize_for == "Max Sharpe" else opt_cap["min_vol_weights"]
+            current_vals  = positions["current_value"].tolist()
+
+            allocations = allocate_new_capital(
+                tickers        = opt_cap["tickers"],
+                current_values = current_vals[:len(opt_cap["tickers"])],
+                optimal_weights = optimal_w_cap,
+                new_capital    = new_capital,
+            )
+
+            if not allocations:
+                st.success("✅ Portfolio is already at optimal weights. Consider investing in new assets.")
+            else:
+                st.divider()
+                st.markdown(f"#### Recommended allocation of ${new_capital:,.0f}")
+
+                # Summary sentences
+                for a in allocations:
+                    pct_of_new = (a["to_buy"] / new_capital) * 100
+                    st.success(
+                        f"**Buy ${a['to_buy']:,.0f} of {a['ticker']}** "
+                        f"({pct_of_new:.1f}% of new capital)  —  "
+                        f"moves from {a['current_pct']:.1f}% → {a['optimal_pct']:.1f}% of portfolio"
+                    )
+
+                st.divider()
+
+                # Allocation table
+                alloc_df = pd.DataFrame(allocations)[[
+                    "ticker", "to_buy", "current_pct", "optimal_pct", "current_val", "target_val"
+                ]]
+                alloc_df.columns = ["Ticker", "Buy $", "Current %", "Target %", "Current Value", "Target Value"]
+
+                styled_alloc = alloc_df.style.format({
+                    "Buy $":         "${:,.2f}",
+                    "Current %":     "{:.2f}%",
+                    "Target %":      "{:.2f}%",
+                    "Current Value": "${:,.2f}",
+                    "Target Value":  "${:,.2f}",
+                })
+                st.dataframe(styled_alloc, use_container_width=True, hide_index=True)
+
+                # Pie chart of new capital allocation
+                fig_alloc = px.pie(
+                    names  = [a["ticker"] for a in allocations],
+                    values = [a["to_buy"]  for a in allocations],
+                    title  = f"How to split ${new_capital:,.0f}",
+                    hole   = 0.5,
+                    color_discrete_sequence=px.colors.qualitative.Set2,
+                )
+                fig_alloc.update_traces(textposition="inside", textinfo="percent+label")
+                fig_alloc.update_layout(
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#e2e8f0"),
+                    margin=dict(t=40, b=0, l=0, r=0),
+                )
+                st.plotly_chart(fig_alloc, use_container_width=True)
+
+
