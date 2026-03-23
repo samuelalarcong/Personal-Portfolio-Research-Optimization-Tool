@@ -553,103 +553,209 @@ with tab7:
 
 
 # ══════════════════════════════════════════════════════
-# TAB 8 — NEW CAPITAL ALLOCATION
+# TAB 8 — NEW CAPITAL ALLOCATION (deep version)
 # ══════════════════════════════════════════════════════
 
 with tab8:
-    st.markdown("#### Where to put new capital")
-    st.caption("Enter new money to invest. The optimizer tells you exactly where to put it to move closer to the optimal portfolio.")
+    st.markdown("#### 💰 New capital allocation")
+    st.caption("Enter the amount you want to invest. Get exact share counts at today's price — ready to execute.")
 
-    col_input, col_info = st.columns([1, 2])
-
-    with col_input:
+    # ── Inputs ───────────────────────────────────────────────────────────
+    i1, i2, i3 = st.columns([1, 1, 1])
+    with i1:
         new_capital = st.number_input(
-            "New capital to invest ($)",
-            min_value=100.0,
-            max_value=10_000_000.0,
-            value=5000.0,
-            step=500.0,
-            format="%.2f",
+            "Capital to deploy ($)",
+            min_value=100.0, max_value=10_000_000.0,
+            value=5000.0, step=500.0, format="%.2f",
         )
-        optimize_for = st.radio("Optimize for", ["Max Sharpe", "Min Volatility"])
-        run_btn = st.button("Calculate allocation →", use_container_width=True)
+    with i2:
+        optimize_for = st.radio("Strategy", ["Max Sharpe", "Min Volatility"], horizontal=True)
+    with i3:
+        st.markdown("&nbsp;")
+        run_btn = st.button("▶  Calculate", use_container_width=True)
 
-    with col_info:
-        st.info(f"""
-        **How this works:**
+    # ── Portfolio context ────────────────────────────────────────────────
+    ctx1, ctx2, ctx3 = st.columns(3)
+    ctx1.metric("Current portfolio",  f"${summary['total_value']:,.2f}")
+    ctx2.metric("New capital",        f"${new_capital:,.2f}")
+    ctx3.metric("Portfolio after",    f"${summary['total_value'] + new_capital:,.2f}")
 
-        1. Calculates the optimal portfolio weights
-        2. Figures out how far each position is from its target
-        3. Allocates your **${new_capital:,.0f}** to the most underweight positions
-        4. Never tells you to sell — only where to buy
-
-        Current portfolio value: **${summary['total_value']:,.2f}**
-        After new capital: **${summary['total_value'] + new_capital:,.2f}**
-        """)
+    st.divider()
 
     if run_btn:
-        with st.spinner("Calculating optimal allocation..."):
+        with st.spinner("Running optimization and calculating share counts..."):
             opt_cap = run_optimization(list(tickers), list(weights), period)
 
         if "error" in opt_cap:
             st.error(opt_cap["error"])
         else:
-            optimal_w_cap = opt_cap["max_sharpe_weights"] if optimize_for == "Max Sharpe" else opt_cap["min_vol_weights"]
-            current_vals  = positions["current_value"].tolist()
-
-            allocations = allocate_new_capital(
-                tickers        = opt_cap["tickers"],
-                current_values = current_vals[:len(opt_cap["tickers"])],
-                optimal_weights = optimal_w_cap,
-                new_capital    = new_capital,
+            optimal_w_cap = (
+                opt_cap["max_sharpe_weights"]
+                if optimize_for == "Max Sharpe"
+                else opt_cap["min_vol_weights"]
             )
 
-            if not allocations:
-                st.success("✅ Portfolio is already at optimal weights. Consider investing in new assets.")
-            else:
-                st.divider()
-                st.markdown(f"#### Recommended allocation of ${new_capital:,.0f}")
+            tkrs_opt    = opt_cap["tickers"]
+            cur_vals    = positions.set_index("ticker").reindex(tkrs_opt)["current_value"].fillna(0).tolist()
+            cur_shares  = positions.set_index("ticker").reindex(tkrs_opt)["shares"].fillna(0).tolist()
+            prices_now  = positions.set_index("ticker").reindex(tkrs_opt)["live_price"].fillna(0).tolist()
+            total_cur   = sum(cur_vals)
+            new_total   = total_cur + new_capital
 
-                # Summary sentences
-                for a in allocations:
-                    pct_of_new = (a["to_buy"] / new_capital) * 100
-                    st.success(
-                        f"**Buy ${a['to_buy']:,.0f} of {a['ticker']}** "
-                        f"({pct_of_new:.1f}% of new capital)  —  "
-                        f"moves from {a['current_pct']:.1f}% → {a['optimal_pct']:.1f}% of portfolio"
-                    )
+            # ── Calculate exact share counts ──────────────────────────────
+            orders      = []
+            deployed    = 0.0
 
-                st.divider()
+            for ticker, cur_val, cur_sh, price, opt_w in zip(
+                tkrs_opt, cur_vals, cur_shares, prices_now, optimal_w_cap
+            ):
+                if price <= 0:
+                    continue
 
-                # Allocation table
-                alloc_df = pd.DataFrame(allocations)[[
-                    "ticker", "to_buy", "current_pct", "optimal_pct", "current_val", "target_val"
-                ]]
-                alloc_df.columns = ["Ticker", "Buy $", "Current %", "Target %", "Current Value", "Target Value"]
+                target_val   = new_total * (opt_w / 100)
+                gap          = target_val - cur_val
 
-                styled_alloc = alloc_df.style.format({
-                    "Buy $":         "${:,.2f}",
-                    "Current %":     "{:.2f}%",
-                    "Target %":      "{:.2f}%",
-                    "Current Value": "${:,.2f}",
-                    "Target Value":  "${:,.2f}",
+                if gap <= 0:
+                    continue
+
+                budget        = min(gap, new_capital - deployed)
+                shares_to_buy = int(budget // price)
+
+                if shares_to_buy < 1:
+                    continue
+
+                cost           = round(shares_to_buy * price, 2)
+                deployed      += cost
+                new_shares     = cur_sh + shares_to_buy
+                w_before       = round((cur_val / total_cur) * 100, 2)
+                w_after        = round(((cur_val + cost) / new_total) * 100, 2)
+
+                orders.append({
+                    "ticker":        ticker,
+                    "shares_to_buy": shares_to_buy,
+                    "price":         round(price, 2),
+                    "cost":          cost,
+                    "shares_before": int(cur_sh),
+                    "shares_after":  int(new_shares),
+                    "w_before":      w_before,
+                    "w_after":       w_after,
+                    "w_delta":       round(w_after - w_before, 2),
+                    "target_w":      round(opt_w, 2),
+                    "pct_of_new":    round((cost / new_capital) * 100, 2),
                 })
-                st.dataframe(styled_alloc, use_container_width=True, hide_index=True)
 
-                # Pie chart of new capital allocation
-                fig_alloc = px.pie(
-                    names  = [a["ticker"] for a in allocations],
-                    values = [a["to_buy"]  for a in allocations],
-                    title  = f"How to split ${new_capital:,.0f}",
-                    hole   = 0.5,
-                    color_discrete_sequence=px.colors.qualitative.Set2,
+                if deployed >= new_capital * 0.99:
+                    break
+
+            leftover = round(new_capital - deployed, 2)
+
+            if not orders:
+                st.success("✅ Portfolio is already at optimal weights. No buying needed.")
+            else:
+                # ── BROKER-READY ORDER CARDS ──────────────────────────────
+                st.markdown("#### 🛒 Buy orders — ready to execute")
+                st.caption("⚠️ Share counts based on Yahoo Finance last closing price. Always verify the live price in your broker before executing — intraday prices may differ slightly.")
+
+                cols = st.columns(min(len(orders), 4))
+                for i, o in enumerate(orders):
+                    with cols[i % len(cols)]:
+                        st.markdown(f"""
+<div style="background:#1a1d27;border:1px solid #2a2d3e;border-radius:10px;padding:14px 16px;margin-bottom:10px">
+  <div style="font-size:18px;font-weight:700;color:#fff;margin-bottom:2px">{o['ticker']}</div>
+  <div style="font-size:28px;font-weight:700;color:#34d399;margin-bottom:8px">+{o['shares_to_buy']} shares</div>
+  <div style="font-size:12px;color:#94a3b8">@ ${o['price']:,.2f} per share</div>
+  <div style="font-size:14px;font-weight:600;color:#fff;margin-top:6px">${o['cost']:,.2f} total</div>
+  <hr style="border-color:#2a2d3e;margin:10px 0">
+  <div style="font-size:12px;color:#94a3b8">You own: {o['shares_before']} → <b style="color:#fff">{o['shares_after']} shares</b></div>
+  <div style="font-size:12px;color:#94a3b8;margin-top:3px">Weight: {o['w_before']}% → <b style="color:#6366f1">{o['w_after']}%</b></div>
+  <div style="font-size:11px;color:#475569;margin-top:3px">{o['pct_of_new']:.1f}% of new capital</div>
+</div>
+""", unsafe_allow_html=True)
+
+                # ── Cash summary ──────────────────────────────────────────
+                st.divider()
+                s1, s2, s3 = st.columns(3)
+                s1.metric("Total deployed",  f"${deployed:,.2f}")
+                s2.metric("Leftover cash",   f"${leftover:,.2f}",
+                          "hold or add next month" if leftover > 0 else None)
+                s3.metric("Orders",          len(orders))
+
+                # ── Full detail table ─────────────────────────────────────
+                st.divider()
+                st.markdown("#### Full order table")
+
+                order_df = pd.DataFrame(orders)[[
+                    "ticker", "shares_to_buy", "price", "cost",
+                    "shares_before", "shares_after",
+                    "w_before", "w_after", "w_delta", "target_w"
+                ]]
+                order_df.columns = [
+                    "Ticker", "Shares to Buy", "Price $", "Total Cost $",
+                    "Shares Before", "Shares After",
+                    "Weight Before", "Weight After", "Weight Δ", "Target Weight"
+                ]
+
+                def clr_delta(v):
+                    if isinstance(v, float):
+                        return f"color: {'#34d399' if v >= 0 else '#f87171'}"
+                    return ""
+
+                styled_ord = order_df.style.format({
+                    "Price $":       "${:,.2f}",
+                    "Total Cost $":  "${:,.2f}",
+                    "Weight Before": "{:.2f}%",
+                    "Weight After":  "{:.2f}%",
+                    "Weight Δ":      "{:+.2f}%",
+                    "Target Weight": "{:.2f}%",
+                }).applymap(clr_delta, subset=["Weight Δ"])
+
+                st.dataframe(styled_ord, use_container_width=True, hide_index=True)
+
+                # ── Before vs after allocation chart ─────────────────────
+                st.divider()
+                st.markdown("#### Portfolio allocation — before vs after")
+
+                all_tickers_chart = list(tickers)
+                before_w = list(weights)
+
+                # Recalculate after weights for all positions
+                new_vals = {}
+                for o in orders:
+                    new_vals[o["ticker"]] = o["cost"]
+
+                after_w = []
+                for t, cur_v in zip(tkrs_opt, cur_vals):
+                    added    = new_vals.get(t, 0)
+                    after_w.append(round(((cur_v + added) / new_total) * 100, 2))
+
+                fig_ba = go.Figure()
+                fig_ba.add_trace(go.Bar(
+                    name="Before", x=tkrs_opt, y=[round(cv/total_cur*100,2) for cv in cur_vals],
+                    marker_color="#94a3b8",
+                ))
+                fig_ba.add_trace(go.Bar(
+                    name="After", x=tkrs_opt, y=after_w,
+                    marker_color="#6366f1",
+                ))
+                fig_ba.update_layout(
+                    barmode="group", yaxis_title="Weight %",
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#e2e8f0"), margin=dict(t=20, b=20),
+                    yaxis=dict(gridcolor="#2a2d3e"),
+                    legend=dict(orientation="h", y=1.1),
                 )
-                fig_alloc.update_traces(textposition="inside", textinfo="percent+label")
-                fig_alloc.update_layout(
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    font=dict(color="#e2e8f0"),
-                    margin=dict(t=40, b=0, l=0, r=0),
+                st.plotly_chart(fig_ba, use_container_width=True)
+
+                # ── Plain-English summary ─────────────────────────────────
+                st.divider()
+                st.markdown("#### Summary")
+                top3 = ", ".join(
+                    f"{o['shares_to_buy']} shares of {o['ticker']} (${o['cost']:,.0f})"
+                    for o in orders[:3]
                 )
-                st.plotly_chart(fig_alloc, use_container_width=True)
-
-
+                st.info(
+                    f"**{optimize_for} strategy** recommends deploying **${deployed:,.2f}** "
+                    f"of your **${new_capital:,.0f}** across {len(orders)} positions. "
+                    f"Priority buys: {top3}. "
+                    f"{'Remaining $'+str(leftover)+' stays as cash.' if leftover > 0 else 'Full capital deployed.'}"
+                )
