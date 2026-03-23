@@ -40,9 +40,15 @@ def _get_returns(tickers: list, period: str = "1y") -> pd.DataFrame:
 
 def _portfolio_stats(weights: np.ndarray, mean_returns: np.ndarray,
                      cov_matrix: np.ndarray, rf: float = 0.045) -> dict:
-    """Given weights, return annualised return, volatility, Sharpe."""
+    """
+    Given weights, return annualised return, volatility, Sharpe.
+    cov_matrix must be ANNUALISED (already multiplied by 252).
+    port_vol = sqrt(w @ cov_annual @ w)  -- no extra sqrt(252)
+    port_return = mean_daily_returns @ w * 252
+    sharpe = (port_return - rf) / port_vol
+    """
     port_return = float(np.dot(weights, mean_returns) * 252)
-    port_vol    = float(np.sqrt(weights @ cov_matrix @ weights) * np.sqrt(252))
+    port_vol    = float(np.sqrt(weights @ cov_matrix @ weights))  # cov already annualised
     sharpe      = (port_return - rf) / port_vol if port_vol > 0 else 0
     return {"return": port_return, "volatility": port_vol, "sharpe": sharpe}
 
@@ -71,7 +77,7 @@ def run_optimization(tickers: list, current_weights: list,
 
     returns      = returns[valid]
     mean_returns = returns.mean().values
-    cov_matrix   = returns.cov().values * 252  # annualised
+    cov_matrix   = returns.cov().values * 252  # annualised — _portfolio_stats expects annual cov
     n            = len(valid)
 
     # Current portfolio stats
@@ -95,7 +101,7 @@ def run_optimization(tickers: list, current_weights: list,
 
     # ── Minimize Volatility ──────────────────────────────────────────────
     def portfolio_vol(w):
-        return float(np.sqrt(w @ cov_matrix @ w) * np.sqrt(252))
+        return float(np.sqrt(w @ cov_matrix @ w))  # cov already annualised
 
     res_vol = minimize(portfolio_vol, w0, method="SLSQP",
                        bounds=bounds, constraints=constraints,
