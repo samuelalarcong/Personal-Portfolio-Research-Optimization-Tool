@@ -8,7 +8,7 @@ from pathlib import Path
 
 # This finds the Excel file relative to this script
 # Works locally AND on Streamlit Cloud since the file is in the repo root
-EXCEL_PATH   = Path(__file__).parent / "MK Stock Positions.xlsx"
+EXCEL_PATH   = Path(__file__).parent / "MK Stock Positions (1).xlsx"
 CLIENTS      = ["Kunall", "Milind"]
 SKIP_TICKERS = {"TOTAL", "NAN", "STOCK NAME", ""}
 
