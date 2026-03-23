@@ -35,6 +35,18 @@ def load_client(sheet_name: str) -> pd.DataFrame:
     df["avg_cost"] = pd.to_numeric(df["avg_cost"], errors="coerce")
     df["shares"]   = pd.to_numeric(df["shares"],   errors="coerce")
 
+    # Fix common ticker mismatches — Yahoo Finance requires specific formats
+    TICKER_MAP = {
+        "BTC":  "BTC-USD",   # Bitcoin
+        "ETH":  "ETH-USD",   # Ethereum
+        "SOL":  "SOL-USD",   # Solana
+        "DOGE": "DOGE-USD",  # Dogecoin
+        "XRP":  "XRP-USD",   # Ripple
+        "ADA":  "ADA-USD",   # Cardano
+        "BNB":  "BNB-USD",   # Binance Coin
+    }
+    df["ticker"] = df["ticker"].map(lambda t: TICKER_MAP.get(t, t))
+
     # Drop TOTAL row and empty rows
     df = df[~df["ticker"].isin(SKIP_TICKERS)]
     df = df.dropna(subset=["ticker", "avg_cost", "shares"])
