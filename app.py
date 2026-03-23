@@ -474,12 +474,12 @@ with tab6:
 
 
 # ══════════════════════════════════════════════════════
-# TAB 7 — REBALANCING
+# TAB 7 — REBALANCING (broker-ready share counts)
 # ══════════════════════════════════════════════════════
 
 with tab7:
-    st.markdown("#### Rebalancing suggestions")
-    st.caption("Based on the Max Sharpe optimal weights. Only shows positions with > 2% deviation.")
+    st.markdown("#### ⚖️ Rebalancing — broker-ready orders")
+    st.caption("⚠️ Prices from Yahoo Finance last close. Verify in your broker before executing.")
 
     with st.spinner("Running optimization for rebalancing..."):
         opt_reb = run_optimization(list(tickers), list(weights), period)
@@ -487,60 +487,156 @@ with tab7:
     if "error" in opt_reb:
         st.error(opt_reb["error"])
     else:
-        rebal_type = st.radio("Optimize for", ["Max Sharpe (best return/risk)", "Min Volatility (safest)"],
-                               horizontal=True)
-
-        optimal_w = opt_reb["max_sharpe_weights"] if "Sharpe" in rebal_type else opt_reb["min_vol_weights"]
-
-        suggestions = get_rebalancing_suggestions(
-            tickers    = opt_reb["tickers"],
-            current_weights = opt_reb["current_weights"],
-            optimal_weights = optimal_w,
-            total_value     = summary["total_value"],
-            threshold       = 2.0,
+        rebal_type = st.radio(
+            "Optimize for",
+            ["Max Sharpe (best return/risk)", "Min Volatility (safest)"],
+            horizontal=True,
         )
+        optimal_w  = opt_reb["max_sharpe_weights"] if "Sharpe" in rebal_type else opt_reb["min_vol_weights"]
+        tkrs_reb   = opt_reb["tickers"]
+        total_val  = summary["total_value"]
+        pos_lookup = positions.set_index("ticker")
 
-        if not suggestions:
-            st.success("✅ Portfolio is already close to optimal. No significant rebalancing needed.")
+        sells = []
+        buys  = []
+
+        for ticker, cur_w, opt_w_val in zip(tkrs_reb, opt_reb["current_weights"], optimal_w):
+            diff = opt_w_val - cur_w
+            if abs(diff) < 2.0:
+                continue
+            try:
+                price      = float(pos_lookup.loc[ticker, "live_price"])
+                cur_shares = float(pos_lookup.loc[ticker, "shares"])
+                cur_val    = float(pos_lookup.loc[ticker, "current_value"])
+            except Exception:
+                continue
+            if price <= 0:
+                continue
+
+            dollar_change = (diff / 100) * total_val
+            shares_count  = int(abs(dollar_change) // price)
+            if shares_count < 1:
+                continue
+
+            actual_cost  = round(shares_count * price, 2)
+            shares_after = int(cur_shares + shares_count) if diff > 0 else int(cur_shares - shares_count)
+            w_after      = round(((cur_val + (actual_cost if diff > 0 else -actual_cost)) / total_val) * 100, 2)
+
+            order = {
+                "ticker":        ticker,
+                "action":        "BUY" if diff > 0 else "SELL",
+                "shares_count":  shares_count,
+                "price":         round(price, 2),
+                "actual_cost":   actual_cost,
+                "shares_before": int(cur_shares),
+                "shares_after":  shares_after,
+                "w_before":      round(cur_w, 2),
+                "w_after":       w_after,
+                "w_delta":       round(diff, 2),
+                "optimal_w":     round(opt_w_val, 2),
+            }
+            if diff > 0:
+                buys.append(order)
+            else:
+                sells.append(order)
+
+        if not sells and not buys:
+            st.success("✅ Portfolio is already close to optimal. No rebalancing needed.")
         else:
-            # Plain-English summary
-            st.markdown("#### Action items")
-            for s in suggestions:
-                if s["diff_pct"] > 0:
-                    st.success(f"📈 {s['message']}")
-                else:
-                    st.warning(f"📉 {s['message']}")
+            # ── SELL CARDS ─────────────────────────────────────────────
+            if sells:
+                st.markdown("#### 🔴 Sell orders")
+                cols_s = st.columns(min(len(sells), 4))
+                for i, o in enumerate(sells):
+                    with cols_s[i % len(cols_s)]:
+                        st.markdown(f"""
+<div style="background:#1a1d27;border:1px solid #f87171;border-radius:10px;padding:14px 16px;margin-bottom:10px">
+  <div style="font-size:18px;font-weight:700;color:#fff;margin-bottom:2px">{o['ticker']}</div>
+  <div style="font-size:28px;font-weight:700;color:#f87171;margin-bottom:8px">−{o['shares_count']} shares</div>
+  <div style="font-size:12px;color:#94a3b8">@ ${o['price']:,.2f} per share</div>
+  <div style="font-size:14px;font-weight:600;color:#fff;margin-top:6px">${o['actual_cost']:,.2f} proceeds</div>
+  <hr style="border-color:#2a2d3e;margin:10px 0">
+  <div style="font-size:12px;color:#94a3b8">Shares: {o['shares_before']} → <b style="color:#fff">{o['shares_after']}</b></div>
+  <div style="font-size:12px;color:#94a3b8;margin-top:3px">Weight: {o['w_before']}% → <b style="color:#f87171">{o['w_after']}%</b></div>
+  <div style="font-size:11px;color:#64748b;margin-top:3px">Target: {o['optimal_w']}%</div>
+</div>
+""", unsafe_allow_html=True)
 
+            # ── BUY CARDS ──────────────────────────────────────────────
+            if buys:
+                st.markdown("#### 🟢 Buy orders")
+                cols_b = st.columns(min(len(buys), 4))
+                for i, o in enumerate(buys):
+                    with cols_b[i % len(cols_b)]:
+                        st.markdown(f"""
+<div style="background:#1a1d27;border:1px solid #34d399;border-radius:10px;padding:14px 16px;margin-bottom:10px">
+  <div style="font-size:18px;font-weight:700;color:#fff;margin-bottom:2px">{o['ticker']}</div>
+  <div style="font-size:28px;font-weight:700;color:#34d399;margin-bottom:8px">+{o['shares_count']} shares</div>
+  <div style="font-size:12px;color:#94a3b8">@ ${o['price']:,.2f} per share</div>
+  <div style="font-size:14px;font-weight:600;color:#fff;margin-top:6px">${o['actual_cost']:,.2f} total</div>
+  <hr style="border-color:#2a2d3e;margin:10px 0">
+  <div style="font-size:12px;color:#94a3b8">Shares: {o['shares_before']} → <b style="color:#fff">{o['shares_after']}</b></div>
+  <div style="font-size:12px;color:#94a3b8;margin-top:3px">Weight: {o['w_before']}% → <b style="color:#34d399">{o['w_after']}%</b></div>
+  <div style="font-size:11px;color:#64748b;margin-top:3px">Target: {o['optimal_w']}%</div>
+</div>
+""", unsafe_allow_html=True)
+
+            # ── Summary metrics ─────────────────────────────────────────
             st.divider()
+            sell_total = sum(o["actual_cost"] for o in sells)
+            buy_total  = sum(o["actual_cost"] for o in buys)
+            net        = round(sell_total - buy_total, 2)
 
-            # Table
-            st.markdown("#### Full rebalancing table")
-            reb_df = pd.DataFrame(suggestions)[[
-                "ticker", "current_pct", "optimal_pct", "diff_pct", "dollar_change", "action"
+            sm1, sm2, sm3, sm4 = st.columns(4)
+            sm1.metric("Sell orders",   len(sells))
+            sm2.metric("Buy orders",    len(buys))
+            sm3.metric("Sell proceeds", f"${sell_total:,.2f}")
+            sm4.metric("Net cash", f"${abs(net):,.2f}",
+                       "released" if net > 0 else "needed")
+
+            # ── Full detail table ───────────────────────────────────────
+            st.divider()
+            st.markdown("#### Full order table")
+            all_orders = sells + buys
+            ord_df = pd.DataFrame(all_orders)[[
+                "action", "ticker", "shares_count", "price", "actual_cost",
+                "shares_before", "shares_after", "w_before", "w_after", "w_delta"
             ]]
-            reb_df.columns = ["Ticker", "Current %", "Optimal %", "Diff %", "$ Change", "Action"]
+            ord_df.columns = [
+                "Action", "Ticker", "Shares", "Price $", "Total $",
+                "Before", "After", "Weight Before", "Weight After", "Weight Δ"
+            ]
 
-            def color_diff(val):
+            def clr_action(val):
+                if val == "SELL": return "color: #f87171"
+                if val == "BUY":  return "color: #34d399"
+                return ""
+
+            def clr_wdelta(val):
                 if isinstance(val, float):
                     return f"color: {'#34d399' if val > 0 else '#f87171'}"
                 return ""
 
-            styled_reb = reb_df.style\
-                .format({"Current %": "{:.2f}%", "Optimal %": "{:.2f}%",
-                         "Diff %": "{:+.2f}%", "$ Change": "${:,.0f}"})\
-                .applymap(color_diff, subset=["Diff %", "$ Change"])
-            st.dataframe(styled_reb, use_container_width=True, hide_index=True)
+            styled_ord = ord_df.style.format({
+                "Price $":       "${:,.2f}",
+                "Total $":       "${:,.2f}",
+                "Weight Before": "{:.2f}%",
+                "Weight After":  "{:.2f}%",
+                "Weight Δ":      "{:+.2f}%",
+            }).applymap(clr_action, subset=["Action"]).applymap(clr_wdelta, subset=["Weight Δ"])
+            st.dataframe(styled_ord, use_container_width=True, hide_index=True)
 
-            # Visual diff chart
-            st.markdown("#### Current vs target weights")
+            # ── Before vs after chart ───────────────────────────────────
+            st.divider()
+            st.markdown("#### Before vs after weights")
             fig_reb = go.Figure()
             fig_reb.add_trace(go.Bar(
-                name="Current", x=opt_reb["tickers"], y=opt_reb["current_weights"],
-                marker_color="#94a3b8",
+                name="Before", x=tkrs_reb,
+                y=opt_reb["current_weights"], marker_color="#94a3b8",
             ))
             fig_reb.add_trace(go.Bar(
-                name="Target", x=opt_reb["tickers"], y=optimal_w,
-                marker_color="#6366f1",
+                name="Target", x=tkrs_reb,
+                y=optimal_w, marker_color="#6366f1",
             ))
             fig_reb.update_layout(
                 barmode="group", yaxis_title="Weight %",
