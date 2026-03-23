@@ -176,7 +176,7 @@ with tab1:
         fig.update_traces(textposition="inside", textinfo="percent+label")
         fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", margin=dict(t=0,b=0,l=0,r=0),
                           legend=dict(font=dict(size=11)))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key="chart_1")
 
     st.markdown("#### Gain / Loss per position")
     colors = ["#34d399" if v >= 0 else "#f87171" for v in positions["gain_loss_pct"]]
@@ -187,7 +187,7 @@ with tab1:
         textposition="outside",
     ))
     fig2.update_layout(**CHART_LAYOUT, yaxis_title="Gain / Loss %")
-    st.plotly_chart(fig2, use_container_width=True)
+    st.plotly_chart(fig2, use_container_width=True, key="chart_2")
 
     b1, b2, b3 = st.columns(3)
     b1.success(f"**Best:** {summary['best_ticker']}  {summary['best_pct']:+.2f}%")
@@ -215,7 +215,7 @@ with tab1:
             xaxis=dict(gridcolor="#2a2d3e"),
             yaxis=dict(gridcolor="rgba(0,0,0,0)"),
         )
-        st.plotly_chart(fig_sec1, use_container_width=True)
+        st.plotly_chart(fig_sec1, use_container_width=True, key="chart_3")
 
     with sec2:
         fig_sec2 = px.pie(
@@ -230,7 +230,7 @@ with tab1:
             margin=dict(t=0, b=0, l=0, r=0),
             showlegend=False,
         )
-        st.plotly_chart(fig_sec2, use_container_width=True)
+        st.plotly_chart(fig_sec2, use_container_width=True, key="chart_4")
 
     top_sec_name = list(sectors_inline.keys())[0]
     top_sec_val  = list(sectors_inline.values())[0]
@@ -272,7 +272,7 @@ with tab2:
     fig3.add_hline(y=0, line_color="#334155", line_width=1)
     fig3.update_layout(**CHART_LAYOUT, yaxis_title="Cumulative Return %",
                        legend=dict(orientation="h", y=1.1))
-    st.plotly_chart(fig3, use_container_width=True)
+    st.plotly_chart(fig3, use_container_width=True, key="chart_5")
 
 
 # ══════════════════════════════════════════════════════
@@ -303,7 +303,7 @@ with tab3:
         line=dict(color="#f87171", width=1.5), name="Drawdown",
     ))
     fig4.update_layout(**CHART_LAYOUT, yaxis_title="Drawdown %")
-    st.plotly_chart(fig4, use_container_width=True)
+    st.plotly_chart(fig4, use_container_width=True, key="chart_6")
 
 
 # ══════════════════════════════════════════════════════
@@ -332,14 +332,14 @@ with tab4:
             xaxis=dict(gridcolor="#2a2d3e"),
             yaxis=dict(gridcolor="rgba(0,0,0,0)"),
         )
-        st.plotly_chart(fig5, use_container_width=True)
+        st.plotly_chart(fig5, use_container_width=True, key="chart_7")
 
     with s2:
         fig6 = px.pie(names=list(sectors.keys()), values=list(sectors.values()),
                       hole=0.5, color_discrete_sequence=px.colors.qualitative.Pastel)
         fig6.update_traces(textposition="inside", textinfo="percent+label")
         fig6.update_layout(paper_bgcolor="rgba(0,0,0,0)", margin=dict(t=0,b=0,l=0,r=0), showlegend=False)
-        st.plotly_chart(fig6, use_container_width=True)
+        st.plotly_chart(fig6, use_container_width=True, key="chart_8")
 
     top_name = list(sectors.keys())[0]
     top_val  = list(sectors.values())[0]
@@ -424,7 +424,7 @@ with tab5:
         height=500,
     )
 
-    st.plotly_chart(fig7, use_container_width=True)
+    st.plotly_chart(fig7, use_container_width=True, key="chart_9")
 
     # ── Highly correlated pairs table ─────────────────────────────────
     st.markdown("#### Notable pairs")
@@ -529,7 +529,7 @@ with tab6:
             yaxis=dict(gridcolor="#2a2d3e"),
             legend=dict(orientation="h", y=1.1),
         )
-        st.plotly_chart(fig_w, use_container_width=True)
+        st.plotly_chart(fig_w, use_container_width=True, key="chart_10")
 
         # ── Efficient frontier ───────────────────────────────────────────
         if opt["efficient_frontier"]:
@@ -571,7 +571,7 @@ with tab6:
                 xaxis=dict(gridcolor="#2a2d3e"), yaxis=dict(gridcolor="#2a2d3e"),
                 legend=dict(orientation="h", y=1.1),
             )
-            st.plotly_chart(fig_ef, use_container_width=True)
+            st.plotly_chart(fig_ef, use_container_width=True, key="chart_11")
 
         # ── Risk-adjusted per holding ────────────────────────────────────
         st.markdown("#### Risk-adjusted return per holding")
@@ -767,7 +767,7 @@ with tab7:
                 yaxis=dict(gridcolor="#2a2d3e"),
                 legend=dict(orientation="h", y=1.1),
             )
-            st.plotly_chart(fig_reb, use_container_width=True)
+            st.plotly_chart(fig_reb, use_container_width=True, key="chart_12")
 
 
 # ══════════════════════════════════════════════════════
@@ -962,7 +962,7 @@ with tab8:
                     yaxis=dict(gridcolor="#2a2d3e"),
                     legend=dict(orientation="h", y=1.1),
                 )
-                st.plotly_chart(fig_ba, use_container_width=True)
+                st.plotly_chart(fig_ba, use_container_width=True, key="chart_13")
 
                 # ── Plain-English summary ─────────────────────────────────
                 st.divider()
