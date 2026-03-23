@@ -1,4 +1,4 @@
-"""
+  """
 app.py — Phase 1 + Phase 2 Portfolio Dashboard
 ===============================================
 RUN:
@@ -48,8 +48,8 @@ with st.sidebar:
     st.title("📈 Portfolio")
     st.divider()
     client    = st.selectbox("Client",    CLIENTS)
-    benchmark = st.selectbox("Benchmark", ["SPY", "QQQ", "IVV", "VTI"])
-    period    = st.selectbox("Period",    ["3mo", "6mo", "1y", "2y", "5y"], index=2)
+    benchmark = st.selectbox("Benchmark", ["SPY", "QQQ"])
+    period    = "1y"
     st.divider()
     refresh = st.button("🔄 Refresh all data", use_container_width=True)
     st.caption("Data from Yahoo Finance")
@@ -194,6 +194,52 @@ with tab1:
     b2.error(  f"**Worst:** {summary['worst_ticker']}  {summary['worst_pct']:+.2f}%")
     b3.info(   f"**Biggest:** {summary['biggest_ticker']}  {summary['biggest_weight']:.1f}%")
 
+    # ── Sector exposure inline ────────────────────────────────────────────
+    st.divider()
+    st.markdown("#### Sector exposure")
+    sectors_inline = get_sectors(tickers, weights)
+
+    sec1, sec2 = st.columns(2)
+    with sec1:
+        fig_sec1 = go.Figure(go.Bar(
+            x=list(sectors_inline.values()),
+            y=list(sectors_inline.keys()),
+            orientation="h", marker_color="#6366f1",
+            text=[f"{v:.1f}%" for v in sectors_inline.values()],
+            textposition="outside",
+        ))
+        fig_sec1.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#e2e8f0"), xaxis_title="Weight %",
+            margin=dict(t=10, b=20, l=10, r=60),
+            xaxis=dict(gridcolor="#2a2d3e"),
+            yaxis=dict(gridcolor="rgba(0,0,0,0)"),
+        )
+        st.plotly_chart(fig_sec1, use_container_width=True)
+
+    with sec2:
+        fig_sec2 = px.pie(
+            names=list(sectors_inline.keys()),
+            values=list(sectors_inline.values()),
+            hole=0.5,
+            color_discrete_sequence=px.colors.qualitative.Pastel,
+        )
+        fig_sec2.update_traces(textposition="inside", textinfo="percent+label")
+        fig_sec2.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(t=0, b=0, l=0, r=0),
+            showlegend=False,
+        )
+        st.plotly_chart(fig_sec2, use_container_width=True)
+
+    top_sec_name = list(sectors_inline.keys())[0]
+    top_sec_val  = list(sectors_inline.values())[0]
+    if top_sec_val > 40:
+        st.warning(f"⚠️ High concentration: **{top_sec_name}** is {top_sec_val:.1f}% of the portfolio.")
+    else:
+        st.success("✅ Portfolio is reasonably diversified across sectors.")
+
+
 
 # ══════════════════════════════════════════════════════
 # TAB 2 — PERFORMANCE VS BENCHMARK
@@ -304,44 +350,120 @@ with tab4:
 
 
 # ══════════════════════════════════════════════════════
-# TAB 5 — CORRELATION
+# TAB 5 — CORRELATION (lower triangle Pearson style)
 # ══════════════════════════════════════════════════════
 
 with tab5:
     st.markdown("#### Correlation between holdings")
-    st.caption("1.0 = move together perfectly  |  0 = no relationship  |  -1.0 = move in opposite directions")
+    st.caption("1.0 = move together  |  0 = no relationship  |  -1.0 = move opposite  |  Only lower triangle shown to avoid redundancy")
 
     corr = get_corr(tickers, period)
+    import numpy as np
+
+    mat  = corr["matrix"]
+    tkrs = corr["tickers"]
+    n    = len(tkrs)
+
+    # Build lower triangle — mask upper triangle with None
+    z_tri   = []
+    txt_tri = []
+    for i in range(n):
+        z_row   = []
+        txt_row = []
+        for j in range(n):
+            if j > i:
+                z_row.append(None)
+                txt_row.append("")
+            else:
+                z_row.append(mat[i][j])
+                txt_row.append(f"{mat[i][j]:.2f}")
+        z_tri.append(z_row)
+        txt_tri.append(txt_row)
 
     fig7 = go.Figure(go.Heatmap(
-        z=corr["matrix"], x=corr["tickers"], y=corr["tickers"],
-        colorscale="RdBu_r", zmid=0, zmin=-1, zmax=1,
-        text=[[f"{v:.2f}" for v in row] for row in corr["matrix"]],
-        texttemplate="%{text}", textfont=dict(size=10),
+        z=z_tri,
+        x=tkrs,
+        y=tkrs,
+        colorscale=[
+            [0.0,  "#2166ac"],   # strong negative — deep blue
+            [0.25, "#92c5de"],   # mild negative   — light blue
+            [0.5,  "#f7f7f7"],   # zero            — white/neutral
+            [0.75, "#f4a582"],   # mild positive   — light red
+            [1.0,  "#b2182b"],   # strong positive — deep red
+        ],
+        zmid=0, zmin=-1, zmax=1,
+        text=txt_tri,
+        texttemplate="%{text}",
+        textfont=dict(size=11, color="black"),
+        hoverongaps=False,
+        showscale=True,
+        colorbar=dict(
+            title="Pearson<br>Correlation",
+            tickvals=[-1, -0.5, 0, 0.5, 1],
+            ticktext=["-1.0", "-0.5", "0.0", "0.5", "1.0"],
+            len=0.6,
+            thickness=15,
+        ),
     ))
+
+    # Make it square and clean
     fig7.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", font=dict(color="#e2e8f0"),
-        margin=dict(t=20, b=20, l=20, r=20),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#e2e8f0", size=12),
+        margin=dict(t=40, b=80, l=80, r=40),
+        xaxis=dict(
+            side="bottom",
+            tickangle=-45,
+            showgrid=False,
+        ),
+        yaxis=dict(
+            autorange="reversed",
+            showgrid=False,
+        ),
+        height=500,
     )
+
     st.plotly_chart(fig7, use_container_width=True)
 
-    st.markdown("#### Highly correlated pairs  (> 0.80)")
-    mat   = corr["matrix"]
-    tkrs  = corr["tickers"]
+    # ── Highly correlated pairs table ─────────────────────────────────
+    st.markdown("#### Notable pairs")
     pairs = []
-    for i in range(len(tkrs)):
-        for j in range(i+1, len(tkrs)):
+    for i in range(n):
+        for j in range(i+1, n):
             v = mat[i][j]
-            if abs(v) > 0.80:
+            if abs(v) >= 0.70:
+                if v >= 0.90:
+                    label = "🔴 Very high — nearly the same"
+                elif v >= 0.70:
+                    label = "🟠 High — move closely together"
+                elif v <= -0.70:
+                    label = "🔵 Negative — natural hedge"
+                else:
+                    label = ""
                 pairs.append({
-                    "Pair":        f"{tkrs[i]} — {tkrs[j]}",
+                    "Pair":        f"{tkrs[i]} & {tkrs[j]}",
                     "Correlation": round(v, 2),
-                    "Meaning":     "Move together" if v > 0 else "Move opposite",
+                    "Signal":      label,
                 })
+
     if pairs:
-        st.dataframe(pd.DataFrame(pairs), use_container_width=True, hide_index=True)
+        pairs_df = pd.DataFrame(pairs).sort_values("Correlation", ascending=False)
+
+        def clr_corr(val):
+            if isinstance(val, float):
+                if val >= 0.90: return "color: #f87171; font-weight: bold"
+                if val >= 0.70: return "color: #f59e0b"
+                if val <= -0.70: return "color: #60a5fa"
+            return ""
+
+        st.dataframe(
+            pairs_df.style.applymap(clr_corr, subset=["Correlation"]),
+            use_container_width=True,
+            hide_index=True,
+        )
     else:
-        st.success("✅ No highly correlated pairs. Good diversification.")
+        st.success("✅ No highly correlated pairs (> 0.70). Good diversification.")
 
 
 # ══════════════════════════════════════════════════════
