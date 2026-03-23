@@ -116,11 +116,10 @@ st.divider()
 # TABS
 # ─────────────────────────────────────────────────────────────────────────────
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+tab1, tab2, tab3, tab5, tab6, tab7, tab8 = st.tabs([
     "📊  Holdings",
     "📈  Performance",
     "⚠️  Risk",
-    "🏭  Sectors",
     "🔗  Correlation",
     "🎯  Optimization",
     "⚖️  Rebalancing",
@@ -304,49 +303,6 @@ with tab3:
     ))
     fig4.update_layout(**CHART_LAYOUT, yaxis_title="Drawdown %")
     st.plotly_chart(fig4, use_container_width=True, key="chart_6")
-
-
-# ══════════════════════════════════════════════════════
-# TAB 4 — SECTOR EXPOSURE
-# ══════════════════════════════════════════════════════
-
-with tab4:
-    st.markdown("#### Sector exposure")
-    sectors = get_sectors(tickers, weights)
-
-    s1, s2 = st.columns(2)
-
-    with s1:
-        fig5 = go.Figure(go.Bar(
-            x=list(sectors.values()), y=list(sectors.keys()),
-            orientation="h", marker_color="#6366f1",
-            text=[f"{v:.1f}%" for v in sectors.values()],
-            textposition="outside",
-        ))
-        fig5.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="#e2e8f0"),
-            xaxis_title="Weight %",
-            margin=dict(t=10, b=20, l=10, r=60),
-            xaxis=dict(gridcolor="#2a2d3e"),
-            yaxis=dict(gridcolor="rgba(0,0,0,0)"),
-        )
-        st.plotly_chart(fig5, use_container_width=True, key="chart_7")
-
-    with s2:
-        fig6 = px.pie(names=list(sectors.keys()), values=list(sectors.values()),
-                      hole=0.5, color_discrete_sequence=px.colors.qualitative.Pastel)
-        fig6.update_traces(textposition="inside", textinfo="percent+label")
-        fig6.update_layout(paper_bgcolor="rgba(0,0,0,0)", margin=dict(t=0,b=0,l=0,r=0), showlegend=False)
-        st.plotly_chart(fig6, use_container_width=True, key="chart_8")
-
-    top_name = list(sectors.keys())[0]
-    top_val  = list(sectors.values())[0]
-    if top_val > 40:
-        st.warning(f"⚠️ High concentration: **{top_name}** is {top_val:.1f}% of the portfolio.")
-    else:
-        st.success("✅ Portfolio is reasonably diversified across sectors.")
 
 
 # ══════════════════════════════════════════════════════
