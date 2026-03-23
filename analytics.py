@@ -125,16 +125,71 @@ def get_risk_metrics(tickers: list, weights: list, benchmark: str = "SPY", perio
 def get_sector_exposure(tickers: list, weights: list) -> dict:
     """
     Fetch sector for each ticker from Yahoo Finance.
+    ETFs don't have a sector — we use a manual mapping for the most common ones.
     Returns sector weights as % of portfolio.
     """
+
+    # Manual mapping for common ETFs that Yahoo Finance returns no sector for
+    ETF_SECTOR_MAP = {
+        # Broad market
+        "SPY":  "Broad Market ETF",
+        "IVV":  "Broad Market ETF",
+        "VOO":  "Broad Market ETF",
+        "VTI":  "Broad Market ETF",
+        "ITOT": "Broad Market ETF",
+        # Tech / Growth
+        "QQQ":  "Technology ETF",
+        "QQQM": "Technology ETF",
+        "VGT":  "Technology ETF",
+        "XLK":  "Technology ETF",
+        # Dividends
+        "SCHD": "Dividend ETF",
+        "VYM":  "Dividend ETF",
+        "DVY":  "Dividend ETF",
+        # Real estate
+        "VNQI": "Real Estate ETF",
+        "VNQ":  "Real Estate ETF",
+        "XLRE": "Real Estate ETF",
+        # Commodities
+        "GLD":  "Gold / Commodities",
+        "IAU":  "Gold / Commodities",
+        "SLV":  "Silver / Commodities",
+        "USO":  "Oil / Commodities",
+        "GSG":  "Oil / Commodities",
+        # Bonds
+        "BND":  "Bonds ETF",
+        "AGG":  "Bonds ETF",
+        "TLT":  "Bonds ETF",
+        "LQD":  "Bonds ETF",
+        # International
+        "EFA":  "International ETF",
+        "VEA":  "International ETF",
+        "EEM":  "Emerging Markets ETF",
+        "VWO":  "Emerging Markets ETF",
+        # Small / Mid cap
+        "IJR":  "Small Cap ETF",
+        "IWM":  "Small Cap ETF",
+        "VO":   "Mid Cap ETF",
+    }
+
     sector_weights = {}
 
     for ticker, weight in zip(tickers, weights):
-        try:
-            info   = yf.Ticker(ticker).info
-            sector = info.get("sector", "Unknown")
-        except Exception:
-            sector = "Unknown"
+        # Check manual ETF map first
+        if ticker in ETF_SECTOR_MAP:
+            sector = ETF_SECTOR_MAP[ticker]
+        else:
+            # Try Yahoo Finance for individual stocks
+            try:
+                info   = yf.Ticker(ticker).info
+                sector = info.get("sector") or info.get("quoteType", "Unknown")
+                # quoteType returns ETF/EQUITY/etc — clean it up
+                if sector == "ETF":
+                    sector = f"{ticker} ETF"
+                elif not sector or sector == "Unknown":
+                    sector = "Other"
+            except Exception:
+                sector = "Other"
 
         sector_weights[sector] = sector_weights.get(sector, 0) + weight
 
